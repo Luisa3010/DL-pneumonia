@@ -1,0 +1,2 @@
+DATA_PATH = "/home/luisa/Documents/University/BHT/Deep Learning/pneumonia_data/chest_xray/test/NORMAL/"
+PROCESSED_DATA_PATH = "/home/luisa/Documents/University/BHT/Deep Learning/pneumonia_data/chest_xray/processed_data/" 
