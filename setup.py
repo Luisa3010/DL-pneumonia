@@ -12,6 +12,14 @@ setup(
         "Pillow", 
         "albumentations",
         "tqdm",
+        "torch",
+        "torchvision",
+        "torchmetrics",
+        "torchsummary",
+        "matplotlib",
+        "pickle",
+        "medmnist",
+        
 
     ]
 ) 
