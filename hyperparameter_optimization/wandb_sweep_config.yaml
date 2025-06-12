@@ -1,0 +1,65 @@
+# Weights & Biases Sweep Configuration for Pneumonia CNN
+
+# Sweep method and metric
+method: bayes  # Bayesian optimization
+metric: 
+  name: val_f1
+  goal: maximize
+
+# Hyperparameters to optimize
+parameters:
+  # Model architecture parameters
+  kernel_size:
+    values: [3, 5, 7]
+  
+  dropout_rate:
+    distribution: uniform
+    min: 0.1
+    max: 0.5
+  
+  conv1_channels:
+    values: [8, 16, 32]
+  
+  conv2_channels:
+    values: [16, 32, 64]
+  
+  fc1_units:
+    values: [64, 128, 256]
+  
+  # Training parameters
+  learning_rate:
+    distribution: log_uniform
+    min: -5  # 1e-5
+    max: -2  # 1e-2
+  
+  batch_size:
+    values: [16, 32, 64, 128]
+  
+  optimizer:
+    values: ['adam', 'sgd', 'rmsprop']
+  
+  weight_decay:
+    distribution: log_uniform
+    min: -5  # 1e-5
+    max: -3  # 1e-3
+  
+  # Training process parameters
+  num_epochs:
+    value: 20
+  
+  early_stopping_patience:
+    value: 3
+  
+  early_stopping_delta:
+    value: 0.001
+
+# Program settings
+program: wandb_sweep.py
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - ${args}
+
+# Resource settings (these are handled by wandb agent)
+max_runs: 30  # Maximum number of trials to run 
