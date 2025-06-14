@@ -282,8 +282,8 @@ if __name__ == "__main__":
         'parameters': {
             'learning_rate': {
                 'distribution': 'uniform',
-                'min': 1e-5,
-                'max': 1e-3,
+                'min': 1e-7,
+                'max': 1e-5,
             },
             'batch_size': {
                 'value': 32  
