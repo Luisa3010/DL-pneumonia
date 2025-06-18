@@ -34,7 +34,10 @@ def train(model, train_loader, val_loader, criterion, optimizer, num_epochs, dev
     history = {
         'train_loss': [],
         'val_loss': [],
-        'val_accuracy': []
+        'val_accuracy': [],
+        'val_precision': [],
+        'val_recall': [],
+        'val_f1': []
     }
     
     # Training loop
@@ -75,6 +78,11 @@ def train(model, train_loader, val_loader, criterion, optimizer, num_epochs, dev
         correct = 0
         total = 0
         
+        # Initialize counters for metrics
+        true_positives = 0
+        false_positives = 0
+        false_negatives = 0
+        
         # No gradient calculation during validation
         with torch.no_grad():
             val_bar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{num_epochs} [Val]")
@@ -89,10 +97,15 @@ def train(model, train_loader, val_loader, criterion, optimizer, num_epochs, dev
                 # Update statistics
                 val_loss += loss.item() * inputs.size(0)
                 
-                # TODO fix this Calculate accuracy, aslo add f1 score and precision and recall
-                _, predicted = torch.max(outputs, 1)
+                # Calculate accuracy and other metrics for binary classification
+                predicted = (outputs > 0.5).float()  # Convert probabilities to binary predictions
                 total += targets.size(0)
                 correct += (predicted == targets).sum().item()
+                
+                # Calculate additional metrics (TP, FP, TN, FN for precision, recall, F1)
+                true_positives += ((predicted == 1) & (targets == 1)).sum().item()
+                false_positives += ((predicted == 1) & (targets == 0)).sum().item()
+                false_negatives += ((predicted == 0) & (targets == 1)).sum().item()
                 
                 val_bar.set_postfix(loss=loss.item())
         
@@ -100,18 +113,29 @@ def train(model, train_loader, val_loader, criterion, optimizer, num_epochs, dev
         val_loss = val_loss / len(val_loader.dataset)
         val_accuracy = correct / total
         
+        # Calculate precision, recall and F1 score using accumulated values
+        precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
+        recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
+        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+        
         history['val_loss'].append(val_loss)
         history['val_accuracy'].append(val_accuracy)
+        history['val_precision'] = history.get('val_precision', []) + [precision]
+        history['val_recall'] = history.get('val_recall', []) + [recall]
+        history['val_f1'] = history.get('val_f1', []) + [f1]
         
         # Print epoch summary
         print(f"Epoch {epoch+1}/{num_epochs} - "
               f"Train Loss: {train_loss:.4f}, "
               f"Val Loss: {val_loss:.4f}, "
-              f"Val Accuracy: {val_accuracy:.4f}")
+              f"Val Accuracy: {val_accuracy:.4f}, "
+              f"Precision: {precision:.4f}, "
+              f"Recall: {recall:.4f}, "
+              f"F1: {f1:.4f}")
     
     return model, history
 
-# TODO: Alter this to make it flexible for different models
+# TODO: Alter this to make it flexible for different models and move to a more appropriate location
 if __name__ == "__main__":
 
     model = BasicCNN()
@@ -144,7 +168,7 @@ if __name__ == "__main__":
     print("Creating test dataset...")
     test_dataset = create_combined_dataset(
         mnist_data=PneumoniaMNIST(split='test', download=True),
-        raw_data_dir='data/raw',
+        # raw_data_dir='data/raw',
         transform=transform, 
         split='test'
     )
@@ -156,7 +180,7 @@ if __name__ == "__main__":
     val_loader = DataLoader(val_dataset, batch_size=32)
     
     criterion = nn.BCELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=0.0001)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     # Train the model
@@ -176,18 +200,36 @@ if __name__ == "__main__":
 
     # Plot loss curves
     plt.figure(figsize=(10, 4))
-    plt.subplot(1, 2, 1)
+    plt.subplot(1, 4, 1)
     plt.plot(history['train_loss'], label='Training Loss')
     plt.plot(history['val_loss'], label='Validation Loss')
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
+    plt.ylim([0, max(max(history['train_loss']), max(history['val_loss'])) * 1.1])  # Set y-limit with 10% margin
     plt.legend()
     
     # Plot accuracy curve
-    plt.subplot(1, 2, 2)
+    plt.subplot(1, 4, 2)
     plt.plot(history['val_accuracy'], label='Validation Accuracy')
     plt.xlabel('Epochs')
     plt.ylabel('Accuracy')
+    plt.ylim([0, 1.0])  # Fixed range for accuracy (0-100%)
+    plt.legend()
+
+    # Plot precision curve
+    plt.subplot(1, 4, 3)
+    plt.plot(history['val_precision'], label='Validation Precision')
+    plt.xlabel('Epochs')
+    plt.ylabel('Precision')
+    plt.ylim([0, 1.0])  # Fixed range for precision (0-100%)
+    plt.legend()
+
+    # Plot recall curve
+    plt.subplot(1, 4, 4)
+    plt.plot(history['val_recall'], label='Validation Recall')
+    plt.xlabel('Epochs')
+    plt.ylabel('Recall')
+    plt.ylim([0, 1.0])  # Fixed range for recall (0-100%)
     plt.legend()
     
     plt.tight_layout()
