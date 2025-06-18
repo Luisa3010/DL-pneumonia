@@ -151,6 +151,11 @@ def train_and_evaluate(config=None):
         # Optimizer
         optimizer = optim.Adam(model.parameters(), lr=lr)
         
+        # Early stopping variables
+        best_f1 = 0.0
+        epochs_no_improve = 0
+        patience = config.patience
+        
         # Training loop
         for epoch in range(config.num_epochs):
             # Training phase
@@ -251,8 +256,10 @@ def train_and_evaluate(config=None):
                 "epoch": epoch
             })
             
-            # Save best model
-            if f1 > wandb.run.summary.get("best_f1", 0):
+            # Save best model and early stopping logic
+            if f1 > best_f1:
+                best_f1 = f1
+                epochs_no_improve = 0
                 wandb.run.summary["best_f1"] = f1
                 # Save model locally in the ResNet sweep directory
                 model_path = os.path.join(RESNET_SWEEP_DIR, f'best_model_run_{wandb.run.id}.pth')
@@ -268,8 +275,17 @@ def train_and_evaluate(config=None):
                 }, model_path)
                 # Save to wandb
                 wandb.save(model_path)
+                print(f"New best F1 score: {f1:.4f} at epoch {epoch+1}")
+            else:
+                epochs_no_improve += 1
+                print(f"No improvement for {epochs_no_improve} epochs")
+            
+            # Early stopping check
+            if epochs_no_improve >= patience:
+                print(f"Early stopping triggered after {epoch+1} epochs (no improvement for {patience} epochs)")
+                break
         
-        return wandb.run.summary["best_f1"]
+        return best_f1
 
 if __name__ == "__main__":
     # Define the sweep configuration
@@ -290,6 +306,9 @@ if __name__ == "__main__":
             },
             'num_epochs': {
                 'value': 50
+            },
+            'patience': {
+                'value': 5  # Stop if no improvement for 10 epochs
             }
         }
     }
