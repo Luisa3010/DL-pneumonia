@@ -17,9 +17,9 @@ setup(
         "torchmetrics",
         "torchsummary",
         "matplotlib",
-        "pickle",
         "medmnist",
-        
-
+        "scikit-learn",
+        "joblib",
+        "wandb"
     ]
 ) 
