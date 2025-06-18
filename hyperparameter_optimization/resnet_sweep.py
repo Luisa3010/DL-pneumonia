@@ -292,7 +292,7 @@ if __name__ == "__main__":
     sweep_config = {
         'method': 'bayes',  
         'metric': {
-            'name': 'val_f1',
+            'name': 'val_roc_auc',
             'goal': 'maximize'
         },
         'parameters': {
