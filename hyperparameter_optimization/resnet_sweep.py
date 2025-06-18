@@ -152,7 +152,7 @@ def train_and_evaluate(config=None):
         optimizer = optim.Adam(model.parameters(), lr=lr)
         
         # Early stopping variables
-        best_f1 = 0.0
+        best_roc_auc = 0.0
         epochs_no_improve = 0
         patience = config.patience
         
@@ -257,16 +257,16 @@ def train_and_evaluate(config=None):
             })
             
             # Save best model and early stopping logic
-            if f1 > best_f1:
-                best_f1 = f1
+            if roc_auc > best_roc_auc:
+                best_roc_auc = roc_auc
                 epochs_no_improve = 0
-                wandb.run.summary["best_f1"] = f1
+                wandb.run.summary["best_roc_auc"] = roc_auc
                 # Save model locally in the ResNet sweep directory
                 model_path = os.path.join(RESNET_SWEEP_DIR, f'best_model_run_{wandb.run.id}.pth')
                 torch.save({
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
-                    'f1_score': f1,
+                    'roc_auc_score': roc_auc,
                     'epoch': epoch,
                     'hyperparameters': {
                         'learning_rate': lr,
@@ -275,7 +275,7 @@ def train_and_evaluate(config=None):
                 }, model_path)
                 # Save to wandb
                 wandb.save(model_path)
-                print(f"New best F1 score: {f1:.4f} at epoch {epoch+1}")
+                print(f"New best val roc auc score: {roc_auc:.4f} at epoch {epoch+1}")
             else:
                 epochs_no_improve += 1
                 print(f"No improvement for {epochs_no_improve} epochs")
@@ -285,7 +285,7 @@ def train_and_evaluate(config=None):
                 print(f"Early stopping triggered after {epoch+1} epochs (no improvement for {patience} epochs)")
                 break
         
-        return best_f1
+        return best_roc_auc
 
 if __name__ == "__main__":
     # Define the sweep configuration
