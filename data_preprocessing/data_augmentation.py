@@ -22,7 +22,7 @@ def augment_images(image_folder, output_folder, n=None):
     
     # Define the transform
     transform = A.Compose([
-        A.Rotate(limit=(-10, 10), p=1.0, crop_border=True)  
+        A.Rotate(limit=(-30, 30), p=1.0, crop_border=True)  
     ])
     
     # Create output directory if it doesn't exist

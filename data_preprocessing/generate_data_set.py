@@ -100,7 +100,7 @@ class FolderImageDataset(Dataset):
     
 
 
-def create_combined_dataset(mnist_data, raw_data_dir, augmented_data_dir=None, transform=None, split='train'):
+def create_combined_dataset(mnist_data, raw_data_dir=None, augmented_data_dir=None, transform=None, split='train'):
     """
     Create a combined dataset for a specific split (train, val, or test)
     
@@ -120,23 +120,24 @@ def create_combined_dataset(mnist_data, raw_data_dir, augmented_data_dir=None, t
     # 1. Add MNIST data
     if mnist_data:
         # Check the format of MNIST data to ensure consistency
-        sample_img, sample_label = mnist_data[0]
+        # sample_img, sample_label = mnist_data[0]
            
         # Create a wrapper to ensure MNIST labels match our convention (0=NORMAL, 1=PNEUMONIA)
         mnist_data = MNISTWrapper(mnist_data, transform)
         datasets_to_combine.append(mnist_data)
     
     # 2. Add raw data
-    for class_name in ['NORMAL', 'PNEUMONIA']:
-        raw_folder = os.path.join(raw_data_dir, class_name, split)
-        if os.path.exists(raw_folder):
-            raw_dataset = FolderImageDataset(
-                raw_folder,
-                class_name,
-                transform=transform
-            )
-            datasets_to_combine.append(raw_dataset)
-    
+    if raw_data_dir is not None:
+        for class_name in ['NORMAL', 'PNEUMONIA']:
+            raw_folder = os.path.join(raw_data_dir, class_name, split)
+            if os.path.exists(raw_folder):
+                raw_dataset = FolderImageDataset(
+                    raw_folder,
+                    class_name,
+                    transform=transform
+                )
+                datasets_to_combine.append(raw_dataset)
+        
     # 3. Add augmented data (only if augmented_data_dir is provided)
     if augmented_data_dir is not None:
         for class_name in ['NORMAL', 'PNEUMONIA']:
