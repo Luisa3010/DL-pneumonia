@@ -289,7 +289,7 @@ if __name__ == "__main__":
                 'value': 32  
             },
             'num_epochs': {
-                'value': 10
+                'value': 50
             }
         }
     }
@@ -298,4 +298,4 @@ if __name__ == "__main__":
     sweep_id = wandb.sweep(sweep_config, project="pneumonia-resnet-sweep")
     
     # Run the sweep
-    wandb.agent(sweep_id, function=train_and_evaluate, count=5)  # Run 5 trials 
+    wandb.agent(sweep_id, function=train_and_evaluate, count=30)  # Run 5 trials 
