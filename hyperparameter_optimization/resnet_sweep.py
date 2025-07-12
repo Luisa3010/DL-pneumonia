@@ -60,7 +60,7 @@ def grayscale_to_rgb(tensor):
     # tensor shape: [batch_size, channels, height, width]
     return tensor.repeat(1, 3, 1, 1)  # Repeat the channel dimension 3 times
 
-def freeze_layers(model):
+def freeze_layers(model, num_layers_to_unfreeze = 1):
     """
     Freeze most of the ResNet backbone, only keeping the final classification layers trainable.
     For the HuggingFace ResNetForImageClassification model, we access the backbone through
@@ -82,12 +82,12 @@ def freeze_layers(model):
     # Get the last stage and its last layer
     last_stage = model.resnet.encoder.stages[-1]
     last_block = last_stage.layers[-1]
-    last_conv_layer = last_block.layer[2]  # This is the last 1x1 convolution layer
-    
-    # Unfreeze only the last convolution layer
-    for param in last_conv_layer.parameters():
-        param.requires_grad = True
-    print("\nUnfreezing the last convolution layer of the last ResNet block")
+
+    last_conv_layers = last_block.layer[-(num_layers_to_unfreeze):]  
+    for conv_layer in last_conv_layers:
+        for param in conv_layer.parameters():
+            param.requires_grad = True
+        print(f"Unfreezing layer {conv_layer} of the last ResNet block")
     
     # Unfreeze the classifier
     for name, param in model.classifier.named_parameters():
@@ -111,6 +111,9 @@ def train_and_evaluate(config=None):
         lr = config.learning_rate
         print(f"Learning rate: {lr}")
         batch_size = config.batch_size
+        dropout_rate = config.dropout_rate
+        optimizer_name = config.optimizer
+        weight_decay = config.weight_decay
         
         # Get data loaders
         train_loader, val_loader = get_data_loaders(batch_size)
@@ -119,14 +122,16 @@ def train_and_evaluate(config=None):
         processor = AutoImageProcessor.from_pretrained("microsoft/resnet-50", use_fast=True)
         model = AutoModelForImageClassification.from_pretrained("microsoft/resnet-50")
         
-        # Modify the classifier head for binary classification
-        # Get the input features from the last layer of the classifier
+        # Modify the classifier head for binary classification with dropout
         in_features = model.classifier[-1].in_features
-        model.classifier[-1] = nn.Linear(in_features, 1)
+        model.classifier[-1] = nn.Sequential(
+            nn.Dropout(dropout_rate),
+            nn.Linear(in_features, 1)
+        )
         model.num_labels = 1
         
         # Freeze most layers and only train classifier and last residual block
-        freeze_layers(model)
+        freeze_layers(model, config.num_layers_to_unfreeze)
         # Print trainable parameters info
         total_params = sum(p.numel() for p in model.parameters())
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -148,8 +153,15 @@ def train_and_evaluate(config=None):
         # Loss function
         criterion = nn.BCELoss()
         
-        # Optimizer
-        optimizer = optim.Adam(model.parameters(), lr=lr)
+        # Optimizer selection
+        if optimizer_name == "Adam":
+            optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+        elif optimizer_name == "SGD":
+            optimizer = optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)
+        elif optimizer_name == "AdamW":
+            optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+        else:
+            raise ValueError(f"Unknown optimizer: {optimizer_name}")
         
         # Early stopping variables
         best_f1 = 0.0
@@ -270,7 +282,11 @@ def train_and_evaluate(config=None):
                     'epoch': epoch,
                     'hyperparameters': {
                         'learning_rate': lr,
-                        'batch_size': batch_size
+                        'batch_size': batch_size,
+                        'dropout_rate': dropout_rate,
+                        'optimizer': optimizer_name,
+                        'weight_decay': weight_decay,
+                        'num_layers_to_unfreeze': config.num_layers_to_unfreeze
                     }
                 }, model_path)
                 # Save to wandb
@@ -297,7 +313,7 @@ if __name__ == "__main__":
         },
         'parameters': {
             'learning_rate': {
-                'distribution': 'uniform',
+                'distribution': 'log_uniform_values',
                 'min': 1e-7,
                 'max': 1e-5,
             },
@@ -308,7 +324,23 @@ if __name__ == "__main__":
                 'value': 50
             },
             'patience': {
-                'value': 5  # Stop if no improvement for 10 epochs
+                'value': 5  # Stop if no improvement for 5 epochs
+            },
+            'num_layers_to_unfreeze': {
+                'values': [1,2,3]
+            },
+            'optimizer': {
+                'values': ['Adam', 'SGD', 'AdamW']
+            },
+            'weight_decay': {
+                'distribution': 'log_uniform_values',
+                'min': 1e-6,
+                'max': 1e-2,
+            },
+            'dropout_rate': {
+                'distribution': 'uniform',
+                'min': 0.0,
+                'max': 0.5,
             }
         }
     }
@@ -317,4 +349,4 @@ if __name__ == "__main__":
     sweep_id = wandb.sweep(sweep_config, project="pneumonia-resnet-sweep")
     
     # Run the sweep
-    wandb.agent(sweep_id, function=train_and_evaluate, count=30)  # Run 5 trials 
+    wandb.agent(sweep_id, function=train_and_evaluate, count=30)  # Run 30 trials 
