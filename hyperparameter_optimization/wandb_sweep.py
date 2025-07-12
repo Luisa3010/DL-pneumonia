@@ -13,7 +13,6 @@ import math
 # Add parent directory to path to access modules from main project
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from models.basic_cnn import BasicCNN
 from data_preprocessing.generate_data_set import create_combined_dataset
 from medmnist import PneumoniaMNIST
 from torchvision import transforms
@@ -301,7 +300,13 @@ def run_wandb_sweep():
     # Run sweep
     wandb.agent(sweep_id, function=train_and_evaluate, count=sweep_config['max_runs'])
     
-    print(f"Sweep completed. Check results at: https://wandb.ai/{wandb.run.entity}/{wandb.run.project}/sweeps/{sweep_id}")
+    try:
+        # Get entity from environment variable or default to username
+        entity = os.environ.get('WANDB_ENTITY', wandb.api.default_entity)
+        project = "pneumonia-cnn-sweep"
+        print(f"Sweep completed. Check results at: https://wandb.ai/{entity}/{project}/sweeps/{sweep_id}")
+    except:
+        print("Sweep complete")
 
 def load_best_model(model_path):
     """Load the best model from a saved checkpoint"""

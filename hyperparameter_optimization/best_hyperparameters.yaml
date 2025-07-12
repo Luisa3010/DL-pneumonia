@@ -1,9 +1,0 @@
-batch_size: 32
-conv1_channels: 16
-conv2_channels: 64
-dropout_rate: 0.2
-fc1_units: 256
-kernel_size: 5
-learning_rate: 0.002804333453441052
-optimizer: adam
-weight_decay: 0.00016844157842893962
