@@ -45,10 +45,10 @@ parameters:
   
   # Training process parameters
   num_epochs:
-    value: 20
+    value: 30
   
   early_stopping_patience:
-    value: 3
+    value: 5
   
   early_stopping_delta:
     value: 0.001
