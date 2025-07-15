@@ -87,8 +87,8 @@ def get_data_loaders(batch_size):
     )
     
     # Create data loaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, pin_memory=True)
     
     return train_loader, val_loader
 
@@ -132,6 +132,7 @@ def train_and_evaluate(config=None):
         
         # Set device
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {device}")
         model = model.to(device)
         
         # Loss function

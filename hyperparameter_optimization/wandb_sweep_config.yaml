@@ -33,10 +33,10 @@ parameters:
     max: 0.01     # 1e-2
   
   batch_size:
-    values: [16, 32, 64, 128]
+    values: [256]
   
   optimizer:
-    values: ['adam', 'sgd', 'rmsprop']
+    values: ['adam', 'rmsprop'] # 'sgd',
   
   weight_decay:
     distribution: log_uniform_values
@@ -62,4 +62,4 @@ command:
   - ${args}
 
 # Resource settings (these are handled by wandb agent)
-max_runs: 30  # Maximum number of trials to run 
+max_runs: 5  # Maximum number of trials to run 
