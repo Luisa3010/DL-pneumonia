@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
 from transformers import AutoImageProcessor, AutoModelForImageClassification
+import math
 
 # Add parent directory to path to access modules from main project
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -150,8 +151,11 @@ def train_and_evaluate(config=None):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = model.to(device)
         
-        # Loss function
-        criterion = nn.BCELoss()
+        # Calculate the ratio of negative to positive samples in your training set
+        num_positives = 12470
+        num_negatives = 4520
+        pos_weight = torch.tensor([num_negatives / num_positives], device=device)
+        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
         
         # Optimizer selection
         if optimizer_name == "Adam":
@@ -160,13 +164,30 @@ def train_and_evaluate(config=None):
             optimizer = optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)
         elif optimizer_name == "AdamW":
             optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+        elif optimizer_name == "rmsprop":
+            optimizer = optim.RMSprop(model.parameters(), lr=lr, weight_decay=weight_decay)
         else:
             raise ValueError(f"Unknown optimizer: {optimizer_name}")
         
         # Early stopping variables
-        best_f1 = 0.0
+        best_val_loss = float('inf')  # Track the lowest val_loss
         epochs_no_improve = 0
         patience = config.patience
+
+        # Learning rate scheduler with warmup and cosine annealing
+        warmup_epochs = 3  # Number of epochs for warmup
+        warmup_steps = warmup_epochs * len(train_loader)
+        total_steps = config.num_epochs * len(train_loader)
+
+        def lr_lambda(current_step):
+            # During warmup, we start from 0 and linearly increase to base_lr
+            if current_step < warmup_steps:
+                return float(current_step) / float(max(1, warmup_steps))
+            # After warmup, we do cosine decay from base_lr to 0
+            progress = float(current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+            return max(0.0, math.cos(0.5 * math.pi * progress))  # Cosine decay from 1 to 0
+
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
         
         # Training loop
         for epoch in range(config.num_epochs):
@@ -178,7 +199,7 @@ def train_and_evaluate(config=None):
                 inputs, targets = inputs.to(device), targets.to(device)
                 
                 # Normalize inputs to [0,1] range before processing
-                inputs = normalize_to_01(inputs)
+                # inputs = normalize_to_01(inputs)
                 
                 # Convert grayscale to RGB
                 inputs = grayscale_to_rgb(inputs)
@@ -188,10 +209,12 @@ def train_and_evaluate(config=None):
                 
                 optimizer.zero_grad()
                 outputs = model(inputs).logits
-                outputs = torch.sigmoid(outputs)  # Apply sigmoid for binary classification
                 loss = criterion(outputs, targets)
                 loss.backward()
                 optimizer.step()
+                scheduler.step()
+                current_lr = optimizer.param_groups[0]['lr']
+                wandb.log({"learning_rate": current_lr})
                 
                 train_loss += loss.item() * inputs.size(0)
             
@@ -216,7 +239,7 @@ def train_and_evaluate(config=None):
                     inputs, targets = inputs.to(device), targets.to(device)
                     
                     # Normalize inputs to [0,1] range before processing
-                    inputs = normalize_to_01(inputs)
+                    # inputs = normalize_to_01(inputs)
                     
                     # Convert grayscale to RGB
                     inputs = grayscale_to_rgb(inputs)
@@ -225,25 +248,37 @@ def train_and_evaluate(config=None):
                     inputs = processor(inputs, return_tensors="pt")["pixel_values"].to(device)
                     
                     outputs = model(inputs).logits
-                    outputs = torch.sigmoid(outputs)  # Apply sigmoid for binary classification
                     loss = criterion(outputs, targets)
                     
-                    val_loss += loss.item() * inputs.size(0)
+                    # Apply sigmoid for metrics and thresholding
+                    outputs_prob = torch.sigmoid(outputs)
+                    predicted = (outputs_prob > 0.5).float()
                     
-                    predicted = (outputs > 0.5).float()
+                    val_loss += loss.item() * inputs.size(0)
                     total += targets.size(0)
                     correct += (predicted == targets).sum().item()
-                    
                     true_positives += ((predicted == 1) & (targets == 1)).sum().item()
                     false_positives += ((predicted == 1) & (targets == 0)).sum().item()
                     false_negatives += ((predicted == 0) & (targets == 1)).sum().item()
-                    
-                    all_outputs.extend(outputs.cpu().numpy().flatten())
+                    all_outputs.extend(outputs_prob.cpu().numpy().flatten())
                     all_targets.extend(targets.cpu().numpy().flatten())
             
             val_loss = val_loss / len(val_loader.dataset)
             val_accuracy = correct / total
             
+            # Debug print block for metric diagnosis (no numpy)
+            print("\n[DEBUG] Validation targets and outputs:")
+            print(f"  all_targets length: {len(all_targets)}")
+            print(f"  all_outputs length: {len(all_outputs)}")
+            print(f"  Unique values in all_targets: {set(all_targets)}")
+            if all_outputs:
+                min_out = min(all_outputs)
+                max_out = max(all_outputs)
+                mean_out = sum(all_outputs) / len(all_outputs)
+                print(f"  Min/Max/Mean of all_outputs: {min_out:.4f} / {max_out:.4f} / {mean_out:.4f}")
+            print(f"  Sample all_targets: {all_targets[:10]}")
+            print(f"  Sample all_outputs: {[float(x) for x in all_outputs[:10]]}")
+
             # Calculate precision, recall and F1 score
             precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
             recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
@@ -268,30 +303,30 @@ def train_and_evaluate(config=None):
                 "epoch": epoch
             })
             
-            # Save best model and early stopping logic
-            if f1 > best_f1:
-                best_f1 = f1
+            # Save best model and early stopping logic (now based on val_loss)
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
                 epochs_no_improve = 0
-                wandb.run.summary["best_f1"] = f1
+                wandb.run.summary["best_val_loss"] = val_loss
                 # Save model locally in the ResNet sweep directory
                 model_path = os.path.join(RESNET_SWEEP_DIR, f'best_model_run_{wandb.run.id}.pth')
-                torch.save({
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'f1_score': f1,
-                    'epoch': epoch,
-                    'hyperparameters': {
-                        'learning_rate': lr,
-                        'batch_size': batch_size,
-                        'dropout_rate': dropout_rate,
-                        'optimizer': optimizer_name,
-                        'weight_decay': weight_decay,
-                        'num_layers_to_unfreeze': config.num_layers_to_unfreeze
-                    }
-                }, model_path)
+                # torch.save({
+                #     'model_state_dict': model.state_dict(),
+                #     'optimizer_state_dict': optimizer.state_dict(),
+                #     'val_loss': val_loss,
+                #     'epoch': epoch,
+                #     'hyperparameters': {
+                #         'learning_rate': lr,
+                #         'batch_size': batch_size,
+                #         'dropout_rate': dropout_rate,
+                #         'optimizer': optimizer_name,
+                #         'weight_decay': weight_decay,
+                #         'num_layers_to_unfreeze': config.num_layers_to_unfreeze
+                #     }
+                # }, model_path)
                 # Save to wandb
                 wandb.save(model_path)
-                print(f"New best F1 score: {f1:.4f} at epoch {epoch+1}")
+                print(f"New best val_loss: {val_loss:.4f} at epoch {epoch+1}")
             else:
                 epochs_no_improve += 1
                 print(f"No improvement for {epochs_no_improve} epochs")
@@ -301,7 +336,7 @@ def train_and_evaluate(config=None):
                 print(f"Early stopping triggered after {epoch+1} epochs (no improvement for {patience} epochs)")
                 break
         
-        return best_f1
+        return best_val_loss  # Optionally return best_val_loss instead of best_f1
 
 if __name__ == "__main__":
     # Define the sweep configuration
@@ -314,14 +349,14 @@ if __name__ == "__main__":
         'parameters': {
             'learning_rate': {
                 'distribution': 'log_uniform_values',
-                'min': 1e-7,
-                'max': 1e-5,
+                'min': 1e-4,
+                'max': 1e-2,
             },
             'batch_size': {
-                'value': 32  
+                'value': 32
             },
             'num_epochs': {
-                'value': 50
+                'value': 30
             },
             'patience': {
                 'value': 5  # Stop if no improvement for 5 epochs
@@ -330,7 +365,7 @@ if __name__ == "__main__":
                 'values': [1,2,3]
             },
             'optimizer': {
-                'values': ['Adam', 'SGD', 'AdamW']
+                'values': ['Adam', 'SGD', 'rmsprop']
             },
             'weight_decay': {
                 'distribution': 'log_uniform_values',
